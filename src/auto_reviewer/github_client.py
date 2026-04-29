@@ -29,6 +29,11 @@ def get_issue(repo: str, number: int) -> dict:
     return json.loads(out)
 
 
+def get_default_branch(repo: str) -> str:
+    out = _run(["gh", "api", f"/repos/{repo}", "--jq", ".default_branch"])
+    return out.strip()
+
+
 def get_pr_diff(repo: str, number: int) -> str:
     return _run(["gh", "pr", "diff", str(number), "--repo", repo])
 

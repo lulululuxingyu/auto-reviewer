@@ -10,7 +10,13 @@ class CodexError(RuntimeError):
     pass
 
 
-def run_codex(prompt: str, *, timeout: int = DEFAULT_TIMEOUT) -> str:
+def run_codex(
+    prompt: str,
+    *,
+    timeout: int = DEFAULT_TIMEOUT,
+    cwd: Path | str | None = None,
+    sandbox_mode: str = "read-only",
+) -> str:
     binary = os.environ.get("CODEX_BIN", "codex")
     use_exec = os.environ.get("CODEX_NO_EXEC") != "1"
 
@@ -24,19 +30,17 @@ def run_codex(prompt: str, *, timeout: int = DEFAULT_TIMEOUT) -> str:
                 "exec",
                 "--skip-git-repo-check",
                 "--sandbox",
-                "read-only",
+                sandbox_mode,
                 "--output-last-message",
                 str(out_path),
                 "-",  # read prompt from stdin
             ]
-        else:
-            # Test/stub mode: pipe prompt to stdin, capture stdout as the result.
-            pass
 
         try:
             result = subprocess.run(
                 cmd,
                 input=prompt,
+                cwd=str(cwd) if cwd is not None else None,
                 capture_output=True,
                 text=True,
                 timeout=timeout,

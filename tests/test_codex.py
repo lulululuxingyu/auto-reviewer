@@ -5,28 +5,20 @@ import pytest
 from auto_reviewer import codex
 
 
-def _patch_run(mocker, *, stdout: str = "", stderr: str = "", returncode: int = 0):
-    return mocker.patch.object(
-        codex.subprocess,
-        "run",
-        return_value=subprocess.CompletedProcess(
-            args=[], returncode=returncode, stdout=stdout, stderr=stderr
-        ),
-    )
-
-
-def test_run_codex_returns_last_message(mocker, tmp_path, monkeypatch):
+def test_run_codex_returns_last_message(mocker):
     written = {}
 
     def fake_run(cmd, **kwargs):
-        # Locate --output-last-message FILE in the command and write the reply there.
         idx = cmd.index("--output-last-message")
         out_path = cmd[idx + 1]
         with open(out_path, "w") as f:
             f.write("final-reply\n")
         written["cmd"] = cmd
         written["input"] = kwargs.get("input")
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="noisy progress\n", stderr="")
+        written["cwd"] = kwargs.get("cwd")
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout="noisy progress\n", stderr=""
+        )
 
     mocker.patch.object(codex.subprocess, "run", side_effect=fake_run)
     out = codex.run_codex("hello prompt")
@@ -36,9 +28,29 @@ def test_run_codex_returns_last_message(mocker, tmp_path, monkeypatch):
     assert cmd[0] == "codex"
     assert cmd[1] == "exec"
     assert "--skip-git-repo-check" in cmd
-    assert "--sandbox" in cmd and cmd[cmd.index("--sandbox") + 1] == "read-only"
+    assert cmd[cmd.index("--sandbox") + 1] == "read-only"
     assert cmd[-1] == "-"
     assert written["input"] == "hello prompt"
+    assert written["cwd"] is None
+
+
+def test_run_codex_passes_cwd_and_sandbox_mode(mocker, tmp_path):
+    written = {}
+
+    def fake_run(cmd, **kwargs):
+        idx = cmd.index("--output-last-message")
+        with open(cmd[idx + 1], "w") as f:
+            f.write("ok")
+        written["cmd"] = cmd
+        written["cwd"] = kwargs.get("cwd")
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout="", stderr=""
+        )
+
+    mocker.patch.object(codex.subprocess, "run", side_effect=fake_run)
+    codex.run_codex("p", cwd=tmp_path, sandbox_mode="workspace-write")
+    assert written["cwd"] == str(tmp_path)
+    assert written["cmd"][written["cmd"].index("--sandbox") + 1] == "workspace-write"
 
 
 def test_run_codex_respects_codex_bin_env(mocker, monkeypatch):

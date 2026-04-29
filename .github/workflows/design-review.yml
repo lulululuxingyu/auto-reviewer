@@ -29,6 +29,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          export AUTO_REVIEWER_WORKSPACE="$HOME/.cache/auto-reviewer"
           uv run python -m auto_reviewer design \
             --repo "${{ github.repository }}" \
             --issue "${{ github.event.issue.number }}"
