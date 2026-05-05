@@ -1,4 +1,4 @@
-BOT_PREFIX = "🤖 Auto-Reviewer:"
+BOT_PREFIX = "\U0001f916 Auto-Reviewer:"
 
 _CITATION_RULES = """\
 When you reference code, write it as `path/to/file.py:LINE` using paths relative to
@@ -23,6 +23,9 @@ Issue title:
 
 Issue body:
 {body}
+
+Discussion (comments from participants):
+{comments}
 
 Produce a design review with these sections (Markdown):
 1. 问题理解（结合实际代码现状）
@@ -49,6 +52,9 @@ PR title:
 PR description:
 {body}
 
+Discussion (comments from participants):
+{comments}
+
 Diff (authoritative, from the GitHub API):
 ```diff
 {diff}
@@ -60,6 +66,15 @@ Produce a code review with these sections (Markdown):
 3. 阻塞问题（必须修复才能合并的，若无写"无"）
 """
 )
+
+
+def format_comments(comments: list[dict]) -> str:
+    if not comments:
+        return "(no comments)"
+    parts = []
+    for c in comments:
+        parts.append(f"@{c['user']}:\n{c['body']}")
+    return "\n\n---\n\n".join(parts)
 
 
 def with_bot_prefix(body: str) -> str:

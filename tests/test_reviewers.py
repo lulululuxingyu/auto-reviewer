@@ -31,6 +31,11 @@ def test_design_review_pipeline(mocker, tmp_path):
         "get_issue",
         return_value={"title": "T", "body": "B"},
     )
+    mocker.patch.object(
+        reviewers.github_client,
+        "get_comments",
+        return_value=[{"user": "alice", "body": "context here"}],
+    )
     prep = mocker.patch.object(
         reviewers.workspace, "prepare_issue_workspace", return_value=tmp_path
     )
@@ -45,10 +50,12 @@ def test_design_review_pipeline(mocker, tmp_path):
     prep.assert_called_once_with("o/r", 5)
     sent_prompt = run_codex.call_args.args[0]
     assert "T" in sent_prompt and "B" in sent_prompt
+    assert "@alice:" in sent_prompt
+    assert "context here" in sent_prompt
     assert run_codex.call_args.kwargs["cwd"] == tmp_path
     assert run_codex.call_args.kwargs["sandbox_mode"] == "workspace-write"
     body = post.call_args.args[2]
-    assert body.startswith("🤖 Auto-Reviewer:")
+    assert body.startswith("\U0001f916 Auto-Reviewer:")
     assert "codex-out" in body
 
 
@@ -57,6 +64,11 @@ def test_code_review_pipeline(mocker, tmp_path):
         reviewers.github_client,
         "get_issue",
         return_value={"title": "PR", "body": "desc"},
+    )
+    mocker.patch.object(
+        reviewers.github_client,
+        "get_comments",
+        return_value=[],
     )
     mocker.patch.object(
         reviewers.github_client, "get_pr_diff", return_value="--- a\n+++ b\n"
@@ -76,10 +88,11 @@ def test_code_review_pipeline(mocker, tmp_path):
     assert "PR" in sent_prompt
     assert "desc" in sent_prompt
     assert "--- a" in sent_prompt
+    assert "(no comments)" in sent_prompt
     assert run_codex.call_args.kwargs["cwd"] == tmp_path
     assert run_codex.call_args.kwargs["sandbox_mode"] == "workspace-write"
     body = post.call_args.args[2]
-    assert body.startswith("🤖 Auto-Reviewer:")
+    assert body.startswith("\U0001f916 Auto-Reviewer:")
     assert "lgtm" in body
 
 
@@ -88,6 +101,11 @@ def test_design_review_handles_null_body(mocker, tmp_path):
         reviewers.github_client,
         "get_issue",
         return_value={"title": "T", "body": None},
+    )
+    mocker.patch.object(
+        reviewers.github_client,
+        "get_comments",
+        return_value=[],
     )
     mocker.patch.object(
         reviewers.workspace, "prepare_issue_workspace", return_value=tmp_path
