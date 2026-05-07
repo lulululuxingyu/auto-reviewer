@@ -15,11 +15,14 @@ correctness, edge cases, error handling, security, naming, tests, and deployment
 implications. If you are unsure whether something is an issue, include it with a
 note that it may be a false positive — omitting it is worse than over-reporting.
 
-If previous review comments exist in the discussion below, do NOT re-raise issues
-that have already been fixed. Focus only on remaining unfixed issues and any NEW
-issues you find that were not previously mentioned. If all prior issues have been
-addressed and you find no new issues, respond with "无" for blocking issues and
-note that prior feedback has been addressed.
+If previous review comments exist in the discussion below, this is a re-review.
+In a re-review, ONLY report:
+1. Issues from prior review that remain unfixed
+2. New issues introduced by the fixes themselves (regressions or conflicts)
+Do NOT raise issues that existed in the original code but were not caught in prior
+reviews — those were your responsibility to catch the first time. If all prior
+issues have been addressed and the fixes introduced no new problems, respond with
+"无" for blocking issues and note that prior feedback has been addressed.
 """
 
 DESIGN_REVIEW_PROMPT = (
