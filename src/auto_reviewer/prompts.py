@@ -7,6 +7,21 @@ in Markdown links — the comment will be posted on github.com where local paths
 as broken links.
 """
 
+_ONE_PASS_RULE = """\
+CRITICAL: You MUST raise ALL issues in this single review. Do NOT hold back any
+concerns for a future round. The developer should be able to address every issue
+from this one review without needing another review cycle. Exhaustively check:
+correctness, edge cases, error handling, security, naming, tests, and deployment
+implications. If you are unsure whether something is an issue, include it with a
+note that it may be a false positive — omitting it is worse than over-reporting.
+
+If previous review comments exist in the discussion below, do NOT re-raise issues
+that have already been fixed. Focus only on remaining unfixed issues and any NEW
+issues you find that were not previously mentioned. If all prior issues have been
+addressed and you find no new issues, respond with "无" for blocking issues and
+note that prior feedback has been addressed.
+"""
+
 DESIGN_REVIEW_PROMPT = (
     """\
 You are a senior engineer responding to a design request from a GitHub issue.
@@ -17,6 +32,7 @@ codebase. Prefer concrete, code-backed reasoning over generic best practices.
 
 """
     + _CITATION_RULES
+    + _ONE_PASS_RULE
     + """
 Issue title:
 {title}
@@ -45,6 +61,7 @@ directory to verify claims rather than guessing from the diff alone.
 
 """
     + _CITATION_RULES
+    + _ONE_PASS_RULE
     + """
 PR title:
 {title}
