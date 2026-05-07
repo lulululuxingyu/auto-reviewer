@@ -29,7 +29,7 @@ def design_review(repo: str, issue_number: int) -> None:
 
 
 def code_review(repo: str, pr_number: int) -> None:
-    pr = github_client.get_issue(repo, pr_number)
+    pr = github_client.get_pr(repo, pr_number)
     comments = github_client.get_comments(repo, pr_number)
     cwd = workspace.prepare_pr_workspace(repo, pr_number)
     diff = github_client.get_pr_diff(repo, pr_number)

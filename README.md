@@ -2,16 +2,17 @@
 
 GitHub Actions agent that runs the local `codex` CLI against issues and pull requests, then posts the result back as a `🤖 Auto-Reviewer:` comment.
 
-- Add the `design-needed` label to an issue → design review comment.
-- Open or update a pull request → code review comment.
+- Comment `@auto-code-review` on a pull request → code review comment.
+- Comment `@auto-design-review` on an issue → design review comment.
+- Or include the keyword in the issue/PR body at creation time.
 
 ## Architecture
 
-- `.github/workflows/design-review.yml` — triggered by `issues.labeled`.
-- `.github/workflows/code-review.yml` — triggered by `pull_request` events.
+- `.github/workflows/design-review.yml` — triggered by `issue_comment` or `issues.opened`.
+- `.github/workflows/code-review.yml` — triggered by `issue_comment` or `pull_request.opened`.
 - Both workflows run on a **self-hosted runner** that has access to the `codex` CLI.
 - Python entrypoint: `python -m auto_reviewer {design|code} --repo OWNER/REPO --issue|--pr N`.
-- Reviewer pipeline: prepare a worktree of the target repo → fetch issue/PR metadata via `gh` CLI → render prompt → run `codex exec -C <worktree> --sandbox workspace-write` (codex can read source and run tests) → post comment via `gh`.
+- Reviewer pipeline: prepare a worktree of the target repo → fetch issue/PR metadata + comments via `gh` CLI → render prompt → run `codex exec -C <worktree> --sandbox workspace-write` (codex can read source and run tests) → post comment via `gh`.
 
 ## Workspace layout
 
@@ -46,8 +47,8 @@ End-to-end checklist for taking a clean macOS box (Apple Silicon or Intel) to a 
 # Tools the agent shells out to
 brew install uv gh git
 
-# OpenAI codex CLI — see https://github.com/openai/codex#installation if your tap differs
-brew install codex
+# OpenAI codex CLI
+npm install -g @openai/codex
 ```
 
 `uv` manages Python 3.11+ for you; no separate Python install needed.
@@ -97,6 +98,7 @@ Two options. Pick one.
 Notes:
 - The runner runs in your **logged-in user session** (it's a LaunchAgent, not a LaunchDaemon). For an always-on box, enable auto-login: System Settings → Users & Groups → Login Options.
 - If macOS quarantines the downloaded archive, run `xattr -dr com.apple.quarantine .` inside the runner dir before `./config.sh`.
+- **Proxy**: The launchd service does NOT inherit shell environment variables. If your network requires a proxy, add `HTTP_PROXY` / `HTTPS_PROXY` to the workflow `env` block (see templates below).
 
 ### 5. Wire it up to a target repo
 
@@ -108,28 +110,56 @@ In **each** repo you want auto-reviewed, drop these two files into `.github/work
 name: Code Review (auto-reviewer)
 
 on:
+  issue_comment:
+    types: [created]
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened]
 
 permissions:
   pull-requests: write
   contents: read
 
 concurrency:
-  group: code-review-${{ github.event.pull_request.number }}
+  group: code-review-${{ github.event.issue.number || github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  review:
+  review-on-comment:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@auto-code-review')
     runs-on: [self-hosted]
     steps:
       - name: Run code review
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # HTTP_PROXY: http://127.0.0.1:PORT   # uncomment if needed
+          # HTTPS_PROXY: http://127.0.0.1:PORT
         run: |
           export AUTO_REVIEWER_WORKSPACE="$HOME/.cache/auto-reviewer"
           cd "$HOME/Code/auto-reviewer"
-          git pull --ff-only
+          git pull --ff-only || git pull --ff-only || echo "Warning: git pull failed, using local version"
+          uv sync
+          uv run python -m auto_reviewer code \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.issue.number }}"
+
+  review-on-open:
+    if: >-
+      github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.body, '@auto-code-review')
+    runs-on: [self-hosted]
+    steps:
+      - name: Run code review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # HTTP_PROXY: http://127.0.0.1:PORT
+          # HTTPS_PROXY: http://127.0.0.1:PORT
+        run: |
+          export AUTO_REVIEWER_WORKSPACE="$HOME/.cache/auto-reviewer"
+          cd "$HOME/Code/auto-reviewer"
+          git pull --ff-only || git pull --ff-only || echo "Warning: git pull failed, using local version"
           uv sync
           uv run python -m auto_reviewer code \
             --repo "${{ github.repository }}" \
@@ -142,8 +172,10 @@ jobs:
 name: Design Review (auto-reviewer)
 
 on:
+  issue_comment:
+    types: [created]
   issues:
-    types: [labeled]
+    types: [opened]
 
 permissions:
   issues: write
@@ -154,17 +186,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  review:
-    if: github.event.label.name == 'design-needed'
+  review-on-comment:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      !github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@auto-design-review')
     runs-on: [self-hosted]
     steps:
       - name: Run design review
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # HTTP_PROXY: http://127.0.0.1:PORT
+          # HTTPS_PROXY: http://127.0.0.1:PORT
         run: |
           export AUTO_REVIEWER_WORKSPACE="$HOME/.cache/auto-reviewer"
           cd "$HOME/Code/auto-reviewer"
-          git pull --ff-only
+          git pull --ff-only || git pull --ff-only || echo "Warning: git pull failed, using local version"
+          uv sync
+          uv run python -m auto_reviewer design \
+            --repo "${{ github.repository }}" \
+            --issue "${{ github.event.issue.number }}"
+
+  review-on-open:
+    if: >-
+      github.event_name == 'issues' &&
+      contains(github.event.issue.body, '@auto-design-review')
+    runs-on: [self-hosted]
+    steps:
+      - name: Run design review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # HTTP_PROXY: http://127.0.0.1:PORT
+          # HTTPS_PROXY: http://127.0.0.1:PORT
+        run: |
+          export AUTO_REVIEWER_WORKSPACE="$HOME/.cache/auto-reviewer"
+          cd "$HOME/Code/auto-reviewer"
+          git pull --ff-only || git pull --ff-only || echo "Warning: git pull failed, using local version"
           uv sync
           uv run python -m auto_reviewer design \
             --repo "${{ github.repository }}" \
@@ -173,12 +230,10 @@ jobs:
 
 Then go to that repo's **Settings → Actions → General → Workflow permissions** and confirm **"Read and write permissions"** is selected. Without this, `GITHUB_TOKEN` cannot post comments and the workflow will fail at the very last step.
 
-To trigger on a different label, change `design-needed` in the `if:` line.
-
 ### 6. Smoke-test
 
-- Open a tiny PR on a target repo → within ~30s the workflow appears under **Actions**; the review comment lands in 1–3 minutes.
-- For design review: add the `design-needed` label to any issue.
+- Comment `@auto-code-review` on any PR → within ~30s the workflow appears under **Actions**; the review comment lands in 1–3 minutes.
+- Comment `@auto-design-review` on any issue for design review.
 
 If a run hangs in **Queued**, the runner isn't picking up the job — check `~/runners/<repo>/_diag/Runner_*.log` and `./svc.sh status`.
 
@@ -212,9 +267,10 @@ uv run python -m auto_reviewer --help
 
 ## Configuration knobs
 
-- **Trigger label** for design review is hard-coded as `design-needed` in `design-review.yml`. Edit the `if:` condition to change it.
+- **Trigger keyword** for code review is `@auto-code-review` (in PR comment or body). For design review it's `@auto-design-review` (in issue comment or body). Edit the `contains()` condition in the workflow to change them.
 - **Bot identity** is `github-actions[bot]` (uses the workflow's `GITHUB_TOKEN`). To use a custom bot account, replace `secrets.GITHUB_TOKEN` with a PAT secret in both workflows.
 - **codex binary name** defaults to `codex`; override with the `CODEX_BIN` environment variable.
+- **Proxy** for the self-hosted runner: uncomment and set `HTTP_PROXY` / `HTTPS_PROXY` in the workflow `env` block. The launchd service does not inherit shell environment variables.
 
 ## Layout
 
@@ -223,7 +279,7 @@ src/auto_reviewer/
   __main__.py        # CLI entry: design / code subcommands
   reviewers.py       # design_review() / code_review()
   codex.py           # subprocess wrapper for the codex CLI
-  github_client.py   # gh CLI wrappers (fetch issue, PR diff, post comment)
+  github_client.py   # gh CLI wrappers (fetch issue/PR, comments, diff, post comment)
   prompts.py         # prompt templates + 🤖 prefix helper
 .github/workflows/
   design-review.yml

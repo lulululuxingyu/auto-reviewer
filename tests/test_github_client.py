@@ -20,6 +20,16 @@ def test_get_issue_parses_json(mocker):
     assert mock_run.call_args.args[0] == ["gh", "api", "/repos/o/r/issues/7"]
 
 
+def test_get_pr_parses_json(mocker):
+    payload = {"number": 9, "title": "pr-title", "body": "pr-body"}
+    mock_run = mocker.patch.object(
+        github_client.subprocess, "run", return_value=_completed(json.dumps(payload))
+    )
+    result = github_client.get_pr("o/r", 9)
+    assert result == payload
+    assert mock_run.call_args.args[0] == ["gh", "api", "/repos/o/r/pulls/9"]
+
+
 def test_get_pr_diff_returns_stdout(mocker):
     mock_run = mocker.patch.object(
         github_client.subprocess, "run", return_value=_completed("--- a\n+++ b\n")

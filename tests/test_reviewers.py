@@ -60,9 +60,9 @@ def test_design_review_pipeline(mocker, tmp_path):
 
 
 def test_code_review_pipeline(mocker, tmp_path):
-    mocker.patch.object(
+    get_pr = mocker.patch.object(
         reviewers.github_client,
-        "get_issue",
+        "get_pr",
         return_value={"title": "PR", "body": "desc"},
     )
     mocker.patch.object(
@@ -83,6 +83,7 @@ def test_code_review_pipeline(mocker, tmp_path):
 
     reviewers.code_review("o/r", 9)
 
+    get_pr.assert_called_once_with("o/r", 9)
     prep.assert_called_once_with("o/r", 9)
     sent_prompt = run_codex.call_args.args[0]
     assert "PR" in sent_prompt

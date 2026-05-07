@@ -29,6 +29,11 @@ def get_issue(repo: str, number: int) -> dict:
     return json.loads(out)
 
 
+def get_pr(repo: str, number: int) -> dict:
+    out = _run(["gh", "api", f"/repos/{repo}/pulls/{number}"])
+    return json.loads(out)
+
+
 def get_comments(repo: str, number: int) -> list[dict]:
     out = _run(["gh", "api", f"/repos/{repo}/issues/{number}/comments", "--paginate"])
     comments = json.loads(out)
