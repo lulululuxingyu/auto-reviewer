@@ -49,8 +49,32 @@ def get_default_branch(repo: str) -> str:
     return out.strip()
 
 
+def _get_pr_files_diff(repo: str, number: int) -> str:
+    """Fallback when full diff exceeds GitHub's file limit.
+
+    Uses the 'List pull request files' API to get per-file patches.
+    """
+    out = _run([
+        "gh", "api", f"/repos/{repo}/pulls/{number}/files",
+        "--paginate", "-q",
+        '.[] | "--- a/" + .filename + "\\n+++ b/" + .filename + "\\n" + (.patch // "(binary or too large)")',
+    ])
+    header = (
+        f"# NOTE: This PR has too many changed files for GitHub to return a full diff.\n"
+        f"# The per-file patches below were obtained from the List PR Files API.\n"
+        f"# Some files may show '(binary or too large)' if their individual patch\n"
+        f"# is unavailable. Use the working directory to inspect those files directly.\n\n"
+    )
+    return header + out
+
+
 def get_pr_diff(repo: str, number: int) -> str:
-    return _run(["gh", "pr", "diff", str(number), "--repo", repo])
+    try:
+        return _run(["gh", "pr", "diff", str(number), "--repo", repo])
+    except GitHubError as exc:
+        if "too_large" in str(exc) or "406" in str(exc) or "exceeded" in str(exc):
+            return _get_pr_files_diff(repo, number)
+        raise
 
 
 def post_comment(repo: str, number: int, body: str) -> None:
