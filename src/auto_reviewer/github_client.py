@@ -7,7 +7,7 @@ class GitHubError(RuntimeError):
     pass
 
 
-_RETRYABLE_ERRORS = ("tls:", "connection reset", "SSL", "EOF", "timeout")
+_RETRYABLE_ERRORS = ("tls:", "connection reset", "ssl", "eof", "timeout")
 
 
 def _run(cmd: list[str], *, input_text: str | None = None, retries: int = 3) -> str:
@@ -66,19 +66,32 @@ def get_default_branch(repo: str) -> str:
 def _get_pr_files_diff(repo: str, number: int) -> str:
     """Fallback when full diff exceeds GitHub's file limit.
 
-    Uses the 'List pull request files' API to get per-file patches.
+    Uses the 'List pull request files' API with manual pagination.
     """
-    out = _run(["gh", "api", f"/repos/{repo}/pulls/{number}/files", "--paginate"])
-    files = json.loads(out)
+    all_files: list[dict] = []
+    page = 1
+    while True:
+        out = _run([
+            "gh", "api",
+            f"/repos/{repo}/pulls/{number}/files?per_page=100&page={page}",
+        ])
+        files = json.loads(out)
+        if not files:
+            break
+        all_files.extend(files)
+        if len(files) < 100:
+            break
+        page += 1
 
     parts = [
         "# NOTE: This PR has too many changed files for GitHub to return a full diff.",
         "# The per-file patches below were obtained from the List PR Files API.",
         "# Some files may show '(binary or too large)' if their individual patch",
         "# is unavailable. Use the working directory to inspect those files directly.",
+        f"# Total files changed: {len(all_files)}",
         "",
     ]
-    for f in files:
+    for f in all_files:
         filename = f.get("filename", "unknown")
         patch = f.get("patch")
         parts.append(f"--- a/{filename}")
