@@ -1,27 +1,41 @@
 import json
 import subprocess
+import time
 
 
 class GitHubError(RuntimeError):
     pass
 
 
-def _run(cmd: list[str], *, input_text: str | None = None) -> str:
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=True,
-            input=input_text,
-        )
-    except subprocess.CalledProcessError as exc:
-        raise GitHubError(
-            f"{' '.join(cmd)} failed ({exc.returncode}): {exc.stderr.strip()}"
-        ) from exc
-    except FileNotFoundError as exc:
-        raise GitHubError("gh CLI not found on PATH") from exc
-    return result.stdout
+_RETRYABLE_ERRORS = ("tls:", "connection reset", "SSL", "EOF", "timeout")
+
+
+def _run(cmd: list[str], *, input_text: str | None = None, retries: int = 3) -> str:
+    last_exc = None
+    for attempt in range(retries):
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+                input=input_text,
+            )
+            return result.stdout
+        except subprocess.CalledProcessError as exc:
+            err_msg = exc.stderr.strip().lower()
+            if attempt < retries - 1 and any(e in err_msg for e in _RETRYABLE_ERRORS):
+                last_exc = exc
+                time.sleep(2 * (attempt + 1))
+                continue
+            raise GitHubError(
+                f"{' '.join(cmd)} failed ({exc.returncode}): {exc.stderr.strip()}"
+            ) from exc
+        except FileNotFoundError as exc:
+            raise GitHubError("gh CLI not found on PATH") from exc
+    raise GitHubError(
+        f"{' '.join(cmd)} failed after {retries} retries: {last_exc}"
+    )
 
 
 def get_issue(repo: str, number: int) -> dict:
