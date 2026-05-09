@@ -9,6 +9,9 @@ class GitHubError(RuntimeError):
 
 _RETRYABLE_ERRORS = ("tls:", "connection reset", "ssl", "eof", "timeout")
 
+# Max diff size in chars to pass to codex (~500KB, roughly 125K tokens)
+MAX_DIFF_CHARS = 500_000
+
 
 def _run(cmd: list[str], *, input_text: str | None = None, retries: int = 3) -> str:
     last_exc = None
@@ -67,6 +70,7 @@ def _get_pr_files_diff(repo: str, number: int) -> str:
     """Fallback when full diff exceeds GitHub's file limit.
 
     Uses the 'List pull request files' API with manual pagination.
+    Truncates output to MAX_DIFF_CHARS to avoid codex token limits.
     """
     all_files: list[dict] = []
     page = 1
@@ -83,31 +87,66 @@ def _get_pr_files_diff(repo: str, number: int) -> str:
             break
         page += 1
 
-    parts = [
-        "# NOTE: This PR has too many changed files for GitHub to return a full diff.",
-        "# The per-file patches below were obtained from the List PR Files API.",
-        "# Some files may show '(binary or too large)' if their individual patch",
-        "# is unavailable. Use the working directory to inspect those files directly.",
-        f"# Total files changed: {len(all_files)}",
-        "",
-    ]
+    # Build file list summary
+    file_list = "\n".join(
+        f"  {f.get('status', '?'):10s} {f.get('filename', 'unknown')} (+{f.get('additions', 0)}/-{f.get('deletions', 0)})"
+        for f in all_files
+    )
+
+    header = (
+        f"# NOTE: This PR changes {len(all_files)} files — too many for a full diff.\n"
+        f"# Patches are included below up to {MAX_DIFF_CHARS // 1000}KB. Truncated files\n"
+        f"# are listed at the end. Use the working directory to inspect them directly.\n\n"
+        f"## All changed files:\n{file_list}\n\n"
+        f"## Patches (up to {MAX_DIFF_CHARS // 1000}KB):\n"
+    )
+
+    parts = [header]
+    current_size = len(header)
+    truncated_files = []
+
     for f in all_files:
         filename = f.get("filename", "unknown")
         patch = f.get("patch")
-        parts.append(f"--- a/{filename}")
-        parts.append(f"+++ b/{filename}")
-        if patch:
-            parts.append(patch)
-        else:
-            parts.append("(binary or too large)")
-        parts.append("")
+        if not patch:
+            continue
+        entry = f"--- a/{filename}\n+++ b/{filename}\n{patch}\n\n"
+        if current_size + len(entry) > MAX_DIFF_CHARS:
+            truncated_files.append(filename)
+            continue
+        parts.append(entry)
+        current_size += len(entry)
 
-    return "\n".join(parts)
+    if truncated_files:
+        parts.append(
+            f"\n# {len(truncated_files)} file(s) truncated due to size limit.\n"
+            f"# Use the working directory to review these files:\n"
+        )
+        for tf in truncated_files:
+            parts.append(f"#   {tf}\n")
+
+    return "".join(parts)
+
+
+def _truncate_diff(diff: str) -> str:
+    if len(diff) <= MAX_DIFF_CHARS:
+        return diff
+    truncated = diff[:MAX_DIFF_CHARS]
+    # Cut at last complete file boundary
+    last_diff_marker = truncated.rfind("\ndiff --git ")
+    if last_diff_marker > MAX_DIFF_CHARS // 2:
+        truncated = truncated[:last_diff_marker]
+    return (
+        truncated
+        + f"\n\n# ... diff truncated at {MAX_DIFF_CHARS // 1000}KB."
+        + " Use the working directory to review remaining files.\n"
+    )
 
 
 def get_pr_diff(repo: str, number: int) -> str:
     try:
-        return _run(["gh", "pr", "diff", str(number), "--repo", repo])
+        diff = _run(["gh", "pr", "diff", str(number), "--repo", repo])
+        return _truncate_diff(diff)
     except GitHubError as exc:
         if "too_large" in str(exc) or "406" in str(exc) or "exceeded" in str(exc):
             return _get_pr_files_diff(repo, number)
